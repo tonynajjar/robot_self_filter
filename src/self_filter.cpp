@@ -27,10 +27,11 @@ namespace robot_self_filter
   {
     XYZSensor = 0,
     XYZRGBSensor = 1,
-    OusterSensor = 2,
-    HesaiSensor = 3,
-    RobosenseSensor = 4,
-    PandarSensor = 5,
+    XYZISensor = 2,
+    OusterSensor = 3,
+    HesaiSensor = 4,
+    RobosenseSensor = 5,
+    PandarSensor = 6,
   };
 
   class SelfFilterNode : public rclcpp::Node
@@ -96,6 +97,9 @@ namespace robot_self_filter
       case SensorType::XYZRGBSensor:
         self_filter_ = std::make_shared<filters::SelfFilter<pcl::PointXYZRGB>>(this->shared_from_this());
         break;
+      case SensorType::XYZISensor:
+        self_filter_ = std::make_shared<filters::SelfFilter<pcl::PointXYZI>>(this->shared_from_this());
+        break;
       case SensorType::OusterSensor:
         self_filter_ = std::make_shared<filters::SelfFilter<PointOuster>>(this->shared_from_this());
         break;
@@ -145,6 +149,24 @@ namespace robot_self_filter
         if (!sf_xyz)
           return;
         auto mask = sf_xyz->getSelfMaskPtr();
+        publishShapesFromMask(mask, cloud->header.frame_id);
+        break;
+      }
+      case SensorType::XYZRGBSensor:
+      {
+        auto sf_xyzrgb = std::dynamic_pointer_cast<filters::SelfFilter<pcl::PointXYZRGB>>(self_filter_);
+        if (!sf_xyzrgb)
+          return;
+        auto mask = sf_xyzrgb->getSelfMaskPtr();
+        publishShapesFromMask(mask, cloud->header.frame_id);
+        break;
+      }
+      case SensorType::XYZISensor:
+      {
+        auto sf_xyzi = std::dynamic_pointer_cast<filters::SelfFilter<pcl::PointXYZI>>(self_filter_);
+        if (!sf_xyzi)
+          return;
+        auto mask = sf_xyzi->getSelfMaskPtr();
         publishShapesFromMask(mask, cloud->header.frame_id);
         break;
       }

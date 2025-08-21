@@ -18,7 +18,7 @@
 // ROS 2
 #include <rclcpp/rclcpp.hpp>               
 #include <resource_retriever/retriever.hpp>  
-#include <tinyxml.h>
+#include <tinyxml2.h>
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -51,9 +51,9 @@ static const rclcpp::Logger LOGGER = rclcpp::get_logger("robot_self_filter.shape
 class ResourceIOStream : public Assimp::IOStream
 {
 public:
-  ResourceIOStream(const resource_retriever::MemoryResource& res)
+  ResourceIOStream(const resource_retriever::Resource& res)
   : res_(res),
-    pos_(res.data.get())
+    pos_(res.data.data())
   {
   }
 
@@ -62,9 +62,9 @@ public:
   size_t Read(void* buffer, size_t size, size_t count) override
   {
     size_t to_read = size * count;
-    if (pos_ + to_read > res_.data.get() + res_.size)
+    if (pos_ + to_read > res_.data.data() + res_.data.size())
     {
-      to_read = res_.size - (pos_ - res_.data.get());
+      to_read = res_.data.size() - (pos_ - res_.data.data());
     }
     memcpy(buffer, pos_, to_read);
     pos_ += to_read;
@@ -80,17 +80,17 @@ public:
 
   aiReturn Seek(size_t offset, aiOrigin origin) override
   {
-    uint8_t* new_pos = nullptr;
+    const uint8_t* new_pos = nullptr;
     switch (origin)
     {
       case aiOrigin_SET:
-        new_pos = res_.data.get() + offset;
+        new_pos = res_.data.data() + offset;
         break;
       case aiOrigin_CUR:
         new_pos = pos_ + offset;  
         break;
       case aiOrigin_END:
-        new_pos = res_.data.get() + res_.size - offset;
+        new_pos = res_.data.data() + res_.data.size() - offset;
         break;
       default:
         // ROS 1 used ROS_BREAK(). In ROS 2, throw or log a fatal error:
@@ -98,7 +98,7 @@ public:
         return aiReturn_FAILURE;
     }
 
-    if (new_pos < res_.data.get() || new_pos > res_.data.get() + res_.size)
+    if (new_pos < res_.data.data() || new_pos > res_.data.data() + res_.data.size())
     {
       return aiReturn_FAILURE;
     }
@@ -109,12 +109,12 @@ public:
 
   size_t Tell() const override
   {
-    return pos_ - res_.data.get();
+    return pos_ - res_.data.data();
   }
 
   size_t FileSize() const override
   {
-    return res_.size;
+    return res_.data.size();
   }
 
   void Flush() override
@@ -123,8 +123,8 @@ public:
   }
 
 private:
-  resource_retriever::MemoryResource res_;
-  uint8_t* pos_;
+  resource_retriever::Resource res_;
+  const uint8_t* pos_;
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -138,16 +138,15 @@ public:
   bool Exists(const char* file) const override
   {
     // We attempt to retrieve the file to see if it exists
-    resource_retriever::MemoryResource res;
     try
     {
-      res = retriever_.get(file);
+      auto res = retriever_.get_shared(file);
+      return true;
     }
     catch (resource_retriever::Exception& /*e*/)
     {
       return false;
     }
-    return true;
   }
 
   char getOsSeparator() const override
@@ -157,16 +156,15 @@ public:
 
   Assimp::IOStream* Open(const char* file, const char* /*mode*/="rb") override
   {
-    resource_retriever::MemoryResource res;
     try
     {
-      res = retriever_.get(file);
+      auto res = retriever_.get_shared(file);
+      return new ResourceIOStream(*res);
     }
     catch (resource_retriever::Exception& /*e*/)
     {
       return nullptr;
     }
-    return new ResourceIOStream(res);
   }
 
   void Close(Assimp::IOStream* stream) override
@@ -188,44 +186,52 @@ float getMeshUnitRescale(const std::string& resource_path)
   //  static std::map<std::string, float> rescale_cache;
 
   resource_retriever::Retriever retriever;
-  resource_retriever::MemoryResource res;
   try
   {
-    res = retriever.get(resource_path);
+    auto res = retriever.get_shared(resource_path);
+    
+    if (res->data.size() == 0)
+      return unit_scale;
+
+    tinyxml2::XMLDocument xmlDoc;
+    const char* data = reinterpret_cast<const char*>(res->data.data());
+    tinyxml2::XMLError result = xmlDoc.Parse(data, res->data.size());
+
+    if (result == tinyxml2::XML_SUCCESS)
+    {
+      tinyxml2::XMLElement* colladaXml = xmlDoc.FirstChildElement("COLLADA");
+      if (colladaXml)
+      {
+        tinyxml2::XMLElement* assetXml = colladaXml->FirstChildElement("asset");
+        if (assetXml)
+        {
+          tinyxml2::XMLElement* unitXml = assetXml->FirstChildElement("unit");
+          if (unitXml)
+          {
+            const char* meter_attr = unitXml->Attribute("meter");
+            if (meter_attr)
+            {
+              tinyxml2::XMLError query_result = unitXml->QueryFloatAttribute("meter", &unit_scale);
+              if (query_result != tinyxml2::XML_SUCCESS)
+              {
+                RCLCPP_WARN(LOGGER,
+                            "Failed to convert unit element meter attribute for [%s]. Using default scale=1.0",
+                            resource_path.c_str());
+              }
+            }
+          }
+        }
+      }
+    }
+    else
+    {
+      RCLCPP_WARN(LOGGER, "Failed to parse XML for [%s]: %s", resource_path.c_str(), xmlDoc.ErrorStr());
+    }
   }
   catch (resource_retriever::Exception &e)
   {
     RCLCPP_ERROR(LOGGER, "%s", e.what());
     return unit_scale;
-  }
-
-  if (res.size == 0)
-    return unit_scale;
-
-  TiXmlDocument xmlDoc;
-  const char* data = reinterpret_cast<const char*>(res.data.get());
-  xmlDoc.Parse(data);
-
-  if (!xmlDoc.Error())
-  {
-    TiXmlElement* colladaXml = xmlDoc.FirstChildElement("COLLADA");
-    if (colladaXml)
-    {
-      TiXmlElement* assetXml = colladaXml->FirstChildElement("asset");
-      if (assetXml)
-      {
-        TiXmlElement* unitXml = assetXml->FirstChildElement("unit");
-        if (unitXml && unitXml->Attribute("meter"))
-        {
-          if (unitXml->QueryFloatAttribute("meter", &unit_scale) != 0)
-          {
-            RCLCPP_WARN(LOGGER,
-                        "Failed to convert unit element meter attribute for [%s]. Using default scale=1.0",
-                        resource_path.c_str());
-          }
-        }
-      }
-    }
   }
   return unit_scale;
 }

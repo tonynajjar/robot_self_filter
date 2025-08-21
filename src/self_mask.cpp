@@ -28,7 +28,7 @@
  */
 
 #include "robot_self_filter/self_mask.h"
-#include <urdf/model.h>
+#include <urdf/model.hpp>
 #include <resource_retriever/retriever.hpp>
 #include <algorithm>
 #include <sstream>

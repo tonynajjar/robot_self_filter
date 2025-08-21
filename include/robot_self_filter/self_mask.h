@@ -12,7 +12,7 @@
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <urdf/model.h>
+#include <urdf/model.hpp>
 #include <resource_retriever/retriever.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/function.hpp>
@@ -87,23 +87,22 @@ static shapes::Shape* constructShape(const urdf::Geometry *geom)
       if (mesh && !mesh->filename.empty())
       {
         resource_retriever::Retriever retriever;
-        resource_retriever::MemoryResource res;
         try
         {
-          res = retriever.get(mesh->filename);
+          auto res = retriever.get_shared(mesh->filename);
+          if (res->data.size() > 0)
+          {
+            boost::filesystem::path model_path(mesh->filename);
+            std::string ext = model_path.extension().string();
+            if (ext == ".dae" || ext == ".DAE")
+              result = shapes::createMeshFromBinaryDAE(mesh->filename.c_str());
+            else
+              result = shapes::createMeshFromBinaryStlData(reinterpret_cast<const char*>(res->data.data()), static_cast<unsigned int>(res->data.size()));
+          }
         }
         catch (...)
         {
           return nullptr;
-        }
-        if (res.size > 0)
-        {
-          boost::filesystem::path model_path(mesh->filename);
-          std::string ext = model_path.extension().string();
-          if (ext == ".dae" || ext == ".DAE")
-            result = shapes::createMeshFromBinaryDAE(mesh->filename.c_str());
-          else
-            result = shapes::createMeshFromBinaryStlData(reinterpret_cast<char*>(res.data.get()), res.size);
         }
       }
       break;

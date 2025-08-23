@@ -5,6 +5,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/create_timer_ros.h>
 #include <tf2_ros/transform_listener.h>
@@ -83,11 +84,41 @@ namespace robot_self_filter
 
       marker_pub_ =
           this->create_publisher<visualization_msgs::msg::MarkerArray>("collision_shapes", 1);
+      
+      // Check if robot_description parameter is empty
+      std::string robot_description = this->get_parameter("robot_description").as_string();
+      if (robot_description.empty())
+      {
+        RCLCPP_INFO(this->get_logger(), "robot_description parameter is empty, subscribing to /robot_description topic");
+        robot_description_sub_ = this->create_subscription<std_msgs::msg::String>(
+            "/robot_description", 
+            rclcpp::QoS(1).transient_local(),
+            std::bind(&SelfFilterNode::robotDescriptionCallback, this, std::placeholders::_1));
+      }
+      else
+      {
+        RCLCPP_INFO(this->get_logger(), "Using robot_description from parameter");
+        robot_description_received_ = true;
+      }
     }
 
     void initSelfFilter()
     {
+      // Wait for robot description if we're getting it from topic
+      if (!robot_description_received_)
+      {
+        RCLCPP_INFO(this->get_logger(), "Waiting for robot_description from topic...");
+        return; // Will be called again when robot description is received
+      }
+
       std::string robot_description_xml = this->get_parameter("robot_description").as_string();
+      if (robot_description_xml.empty() && !received_robot_description_.empty())
+      {
+        // Use the description received from topic
+        this->set_parameter(rclcpp::Parameter("robot_description", received_robot_description_));
+        robot_description_xml = received_robot_description_;
+        RCLCPP_INFO(this->get_logger(), "Using robot_description from topic (%zu characters)", robot_description_xml.length());
+      }
 
       switch (sensor_type_)
       {
@@ -126,8 +157,28 @@ namespace robot_self_filter
     }
 
   private:
+    void robotDescriptionCallback(const std_msgs::msg::String::SharedPtr msg)
+    {
+      RCLCPP_INFO(this->get_logger(), "Received robot_description from topic (%zu characters)", msg->data.length());
+      received_robot_description_ = msg->data;
+      robot_description_received_ = true;
+      
+      // Now that we have robot description, initialize the self filter
+      if (!self_filter_)
+      {
+        initSelfFilter();
+      }
+    }
+
     void cloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr &cloud)
     {
+      if (!self_filter_)
+      {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, 
+                            "Self filter not initialized yet, waiting for robot_description...");
+        return;
+      }
+
       RCLCPP_INFO(this->get_logger(), "Received cloud message with timestamp %.6f",
                   rclcpp::Time(cloud->header.stamp).seconds());
 
@@ -313,6 +364,7 @@ namespace robot_self_filter
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pointCloudPublisher_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr robot_description_sub_;
 
     std::string sensor_frame_;
     bool use_rgb_;
@@ -320,6 +372,9 @@ namespace robot_self_filter
     int max_queue_size_;
     std::vector<std::string> frames_;
     std::string in_topic_;
+    
+    bool robot_description_received_ = false;
+    std::string received_robot_description_;
   };
 
 } // namespace robot_self_filter
@@ -328,7 +383,11 @@ int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<robot_self_filter::SelfFilterNode>();
+  
+  // Try to initialize self filter (will succeed if robot_description parameter is set)
   node->initSelfFilter();
+  
+  // Spin to handle robot_description topic subscription if needed
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;

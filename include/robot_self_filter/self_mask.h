@@ -375,36 +375,16 @@ protected:
     for (auto &linfo : links)
     {
       const urdf::Link *link = urdfModel->getLink(linfo.name).get();
-      if (!link)
+      if (!link || !(link->collision && link->collision->geometry))
         continue;
 
-      // Collect collision geometry first (preferred)
+      // Collect collision geometry
       std::vector<urdf::CollisionSharedPtr> collisions = link->collision_array;
       if (collisions.empty() && link->collision)
         collisions.push_back(link->collision);
 
-      // If no collision geometry, try visual geometry
-      std::vector<urdf::VisualSharedPtr> visuals;
-      if (collisions.empty())
-      {
-        RCLCPP_INFO(node_->get_logger(), "No collision geometry for link '%s', using visual geometry", linfo.name.c_str());
-        visuals = link->visual_array;
-        if (visuals.empty() && link->visual)
-          visuals.push_back(link->visual);
-      }
-
-      // Skip if neither collision nor visual geometry exists
-      if (collisions.empty() && visuals.empty())
-      {
-        RCLCPP_WARN(node_->get_logger(), "No collision or visual geometry for link '%s', skipping", linfo.name.c_str());
-        continue;
-      }
-
-      // Process collision geometry
       for (auto &coll : collisions)
       {
-        if (!coll->geometry) continue;
-        
         shapes::Shape *shape = constructShape(coll->geometry.get());
         if (!shape) continue;
 
@@ -479,79 +459,6 @@ protected:
               // if implemented in ConvexMesh.
               // -> No direct calls needed here. 
               // (Or you could design a custom method to do it.)
-              break;
-            }
-            default:
-              break;
-          }
-
-          // compute volume
-          sl.volume        = sl.body->computeVolume();
-          sl.unscaledBody  = bodies::createBodyFromShape(shape);
-
-          bodies_.push_back(sl);
-        }
-        delete shape;
-      }
-
-      // Process visual geometry (if no collision was found)
-      for (auto &vis : visuals)
-      {
-        if (!vis->geometry) continue;
-        
-        shapes::Shape *shape = constructShape(vis->geometry.get());
-        if (!shape) continue;
-
-        SeeLink sl;
-        sl.name       = linfo.name;
-        sl.constTransf = urdfPose2TFTransform(vis->origin);
-        sl.body       = bodies::createBodyFromShape(shape);
-
-        if (sl.body)
-        {
-          // handle shape type (same as collision)
-          switch (sl.body->getType())
-          {
-            case shapes::SPHERE:
-            {
-              auto sph = dynamic_cast<bodies::Sphere*>(sl.body);
-              sph->setScale(linfo.scale);
-              sph->setPadding(linfo.padding);
-              break;
-            }
-            case shapes::BOX:
-            {
-              auto bx = dynamic_cast<bodies::Box*>(sl.body);
-              if (linfo.box_scale.size() == 3 && linfo.box_padding.size() == 3)
-              {
-                bx->setScale(linfo.box_scale[0], linfo.box_scale[1], linfo.box_scale[2]);
-                bx->setPadding(linfo.box_padding[0], linfo.box_padding[1], linfo.box_padding[2]);
-              }
-              else
-              {
-                bx->setScale(linfo.scale, linfo.scale, linfo.scale);
-                bx->setPadding(linfo.padding, linfo.padding, linfo.padding);
-              }
-              break;
-            }
-            case shapes::CYLINDER:
-            {
-              auto cyl = dynamic_cast<bodies::Cylinder*>(sl.body);
-              if (linfo.cylinder_scale.size() == 2 && linfo.cylinder_padding.size() == 2)
-              {
-                cyl->setScale(linfo.cylinder_scale[0], linfo.cylinder_scale[1]);
-                cyl->setPadding(linfo.cylinder_padding[0], linfo.cylinder_padding[1]);
-              }
-              else
-              {
-                cyl->setScale(linfo.scale, linfo.scale);
-                cyl->setPadding(linfo.padding, linfo.padding);
-              }
-              break;
-            }
-            case shapes::MESH:
-            {
-              // Same as collision mesh handling
               break;
             }
             default:

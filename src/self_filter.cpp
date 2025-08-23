@@ -179,10 +179,10 @@ namespace robot_self_filter
         return;
       }
 
-      RCLCPP_INFO(this->get_logger(), "Received cloud message with timestamp %.6f",
+      RCLCPP_DEBUG(this->get_logger(), "Received cloud message with timestamp %.6f",
                   rclcpp::Time(cloud->header.stamp).seconds());
 
-      RCLCPP_INFO(this->get_logger(), "Point cloud size: width = %d, height = %d, total points = %d",
+      RCLCPP_DEBUG(this->get_logger(), "Point cloud size: width = %d, height = %d, total points = %d",
                   cloud->width, cloud->height, cloud->width * cloud->height);
 
       sensor_msgs::msg::PointCloud2 out2;
@@ -354,7 +354,7 @@ namespace robot_self_filter
       }
 
       marker_pub_->publish(marker_array);
-      RCLCPP_INFO(this->get_logger(), "Published %zu collision shapes", marker_array.markers.size());
+      RCLCPP_DEBUG(this->get_logger(), "Published %zu collision shapes", marker_array.markers.size());
     }
 
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;

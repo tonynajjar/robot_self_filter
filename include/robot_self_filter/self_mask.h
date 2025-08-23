@@ -237,9 +237,11 @@ public:
         sl.body->setPose(tf2_transform * sl.constTransf);
         sl.unscaledBody->setPose(tf2_transform * sl.constTransf);
       }
-      catch(...)
+      catch(const std::exception& e)
       {
-        // keep old pose
+        RCLCPP_ERROR(node_->get_logger(),
+                            "Failed to lookup transform FROM '%s' TO '%s': %s", 
+                            header.frame_id.c_str(), sl.name.c_str(), e.what());
       }
     }
     computeBoundingSpheres();

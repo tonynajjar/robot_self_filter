@@ -375,103 +375,217 @@ protected:
     for (auto &linfo : links)
     {
       const urdf::Link *link = urdfModel->getLink(linfo.name).get();
-      if (!link || !(link->collision && link->collision->geometry))
+      if (!link)
         continue;
 
+      bool use_visual = false;
+      
       // Collect collision geometry
       std::vector<urdf::CollisionSharedPtr> collisions = link->collision_array;
       if (collisions.empty() && link->collision)
         collisions.push_back(link->collision);
-
-      for (auto &coll : collisions)
+      
+      // If no collision elements, try visual elements
+      std::vector<urdf::VisualSharedPtr> visuals;
+      if (collisions.empty() || !link->collision || !link->collision->geometry)
       {
-        shapes::Shape *shape = constructShape(coll->geometry.get());
-        if (!shape) continue;
+        use_visual = true;
+        visuals = link->visual_array;
+        if (visuals.empty() && link->visual)
+          visuals.push_back(link->visual);
+        
+        // If no visual elements either, skip this link
+        if (visuals.empty() || !link->visual || !link->visual->geometry)
+          continue;
+      }
 
-        SeeLink sl;
-        sl.name       = linfo.name;
-        sl.constTransf = urdfPose2TFTransform(coll->origin);
-        sl.body       = bodies::createBodyFromShape(shape);
-
-        if (sl.body)
+      if (use_visual)
+      {
+        // Process visual elements
+        for (auto &vis : visuals)
         {
-          // handle shape type
-          switch (sl.body->getType())
+          shapes::Shape *shape = constructShape(vis->geometry.get());
+          if (!shape) continue;
+
+          SeeLink sl;
+          sl.name       = linfo.name;
+          sl.constTransf = urdfPose2TFTransform(vis->origin);
+          sl.body       = bodies::createBodyFromShape(shape);
+
+          if (sl.body)
           {
-            case shapes::SPHERE:
+            // handle shape type
+            switch (sl.body->getType())
             {
-              auto sph = dynamic_cast<bodies::Sphere*>(sl.body);
-              // single scale/padding only
-              sph->setScale(linfo.scale);
-              sph->setPadding(linfo.padding);
-              break;
-            }
-            case shapes::BOX:
-            {
-              auto bx = dynamic_cast<bodies::Box*>(sl.body);
-              if (linfo.box_scale.size() == 3 && linfo.box_padding.size() == 3)
+              case shapes::SPHERE:
               {
-                bx->setScale(linfo.box_scale[0],
-                             linfo.box_scale[1],
-                             linfo.box_scale[2]);
-                bx->setPadding(linfo.box_padding[0],
-                               linfo.box_padding[1],
-                               linfo.box_padding[2]);
+                auto sph = dynamic_cast<bodies::Sphere*>(sl.body);
+                // single scale/padding only
+                sph->setScale(linfo.scale);
+                sph->setPadding(linfo.padding);
+                break;
               }
-              else
+              case shapes::BOX:
               {
-                // fallback
-                bx->setScale(linfo.scale, linfo.scale, linfo.scale);
-                bx->setPadding(linfo.padding, linfo.padding, linfo.padding);
+                auto bx = dynamic_cast<bodies::Box*>(sl.body);
+                if (linfo.box_scale.size() == 3 && linfo.box_padding.size() == 3)
+                {
+                  bx->setScale(linfo.box_scale[0],
+                               linfo.box_scale[1],
+                               linfo.box_scale[2]);
+                  bx->setPadding(linfo.box_padding[0],
+                                 linfo.box_padding[1],
+                                 linfo.box_padding[2]);
+                }
+                else
+                {
+                  // fallback
+                  bx->setScale(linfo.scale, linfo.scale, linfo.scale);
+                  bx->setPadding(linfo.padding, linfo.padding, linfo.padding);
+                }
+                break;
               }
-              break;
-            }
-            case shapes::CYLINDER:
-            {
-              auto cyl = dynamic_cast<bodies::Cylinder*>(sl.body);
-              if (linfo.cylinder_scale.size() == 2 && linfo.cylinder_padding.size() == 2)
+              case shapes::CYLINDER:
               {
-                cyl->setScale(linfo.cylinder_scale[0],
-                              linfo.cylinder_scale[1]);
-                cyl->setPadding(linfo.cylinder_padding[0],
-                                linfo.cylinder_padding[1]);
+                auto cyl = dynamic_cast<bodies::Cylinder*>(sl.body);
+                if (linfo.cylinder_scale.size() == 2 && linfo.cylinder_padding.size() == 2)
+                {
+                  cyl->setScale(linfo.cylinder_scale[0],
+                                linfo.cylinder_scale[1]);
+                  cyl->setPadding(linfo.cylinder_padding[0],
+                                  linfo.cylinder_padding[1]);
+                }
+                else
+                {
+                  // fallback
+                  cyl->setScale(linfo.scale, linfo.scale);
+                  cyl->setPadding(linfo.padding, linfo.padding);
+                }
+                break;
               }
-              else
+              case shapes::MESH:
               {
-                // fallback
-                cyl->setScale(linfo.scale, linfo.scale);
-                cyl->setPadding(linfo.padding, linfo.padding);
+                // For a mesh, you might do uniform scale/padding
+                // but there's no single "setScale" in the base class.
+                // In the improved code we do it similarly to a sphere: single scale/padding
+                auto mesh_body = dynamic_cast<bodies::ConvexMesh*>(sl.body);
+                // Possibly store your scale/padding if you want a custom approach
+                // For now, no direct function calls for multi-scale, so do uniform or skip
+                // You might implement your own approach. For demonstration:
+                // We'll ignore multi-dim box/cylinder arrays for the mesh
+                // because it's not natively supported.
+                // That means we'd do uniform scale/padding in `updateInternalData()`,
+                // if implemented in ConvexMesh.
+                // -> No direct calls needed here. 
+                // (Or you could design a custom method to do it.)
+                break;
               }
-              break;
+              default:
+                break;
             }
-            case shapes::MESH:
-            {
-              // For a mesh, you might do uniform scale/padding
-              // but there's no single "setScale" in the base class.
-              // In the improved code we do it similarly to a sphere: single scale/padding
-              auto mesh_body = dynamic_cast<bodies::ConvexMesh*>(sl.body);
-              // Possibly store your scale/padding if you want a custom approach
-              // For now, no direct function calls for multi-scale, so do uniform or skip
-              // You might implement your own approach. For demonstration:
-              // We'll ignore multi-dim box/cylinder arrays for the mesh
-              // because it's not natively supported.
-              // That means we'd do uniform scale/padding in `updateInternalData()`,
-              // if implemented in ConvexMesh.
-              // -> No direct calls needed here. 
-              // (Or you could design a custom method to do it.)
-              break;
-            }
-            default:
-              break;
+
+            // compute volume
+            sl.volume        = sl.body->computeVolume();
+            sl.unscaledBody  = bodies::createBodyFromShape(shape);
+
+            bodies_.push_back(sl);
           }
-
-          // compute volume
-          sl.volume        = sl.body->computeVolume();
-          sl.unscaledBody  = bodies::createBodyFromShape(shape);
-
-          bodies_.push_back(sl);
+          delete shape;
         }
-        delete shape;
+      }
+      else
+      {
+        // Process collision elements
+        for (auto &coll : collisions)
+        {
+          shapes::Shape *shape = constructShape(coll->geometry.get());
+          if (!shape) continue;
+
+          SeeLink sl;
+          sl.name       = linfo.name;
+          sl.constTransf = urdfPose2TFTransform(coll->origin);
+          sl.body       = bodies::createBodyFromShape(shape);
+
+          if (sl.body)
+          {
+            // handle shape type
+            switch (sl.body->getType())
+            {
+              case shapes::SPHERE:
+              {
+                auto sph = dynamic_cast<bodies::Sphere*>(sl.body);
+                // single scale/padding only
+                sph->setScale(linfo.scale);
+                sph->setPadding(linfo.padding);
+                break;
+              }
+              case shapes::BOX:
+              {
+                auto bx = dynamic_cast<bodies::Box*>(sl.body);
+                if (linfo.box_scale.size() == 3 && linfo.box_padding.size() == 3)
+                {
+                  bx->setScale(linfo.box_scale[0],
+                               linfo.box_scale[1],
+                               linfo.box_scale[2]);
+                  bx->setPadding(linfo.box_padding[0],
+                                 linfo.box_padding[1],
+                                 linfo.box_padding[2]);
+                }
+                else
+                {
+                  // fallback
+                  bx->setScale(linfo.scale, linfo.scale, linfo.scale);
+                  bx->setPadding(linfo.padding, linfo.padding, linfo.padding);
+                }
+                break;
+              }
+              case shapes::CYLINDER:
+              {
+                auto cyl = dynamic_cast<bodies::Cylinder*>(sl.body);
+                if (linfo.cylinder_scale.size() == 2 && linfo.cylinder_padding.size() == 2)
+                {
+                  cyl->setScale(linfo.cylinder_scale[0],
+                                linfo.cylinder_scale[1]);
+                  cyl->setPadding(linfo.cylinder_padding[0],
+                                  linfo.cylinder_padding[1]);
+                }
+                else
+                {
+                  // fallback
+                  cyl->setScale(linfo.scale, linfo.scale);
+                  cyl->setPadding(linfo.padding, linfo.padding);
+                }
+                break;
+              }
+              case shapes::MESH:
+              {
+                // For a mesh, you might do uniform scale/padding
+                // but there's no single "setScale" in the base class.
+                // In the improved code we do it similarly to a sphere: single scale/padding
+                auto mesh_body = dynamic_cast<bodies::ConvexMesh*>(sl.body);
+                // Possibly store your scale/padding if you want a custom approach
+                // For now, no direct function calls for multi-scale, so do uniform or skip
+                // You might implement your own approach. For demonstration:
+                // We'll ignore multi-dim box/cylinder arrays for the mesh
+                // because it's not natively supported.
+                // That means we'd do uniform scale/padding in `updateInternalData()`,
+                // if implemented in ConvexMesh.
+                // -> No direct calls needed here. 
+                // (Or you could design a custom method to do it.)
+                break;
+              }
+              default:
+                break;
+            }
+
+            // compute volume
+            sl.volume        = sl.body->computeVolume();
+            sl.unscaledBody  = bodies::createBodyFromShape(shape);
+
+            bodies_.push_back(sl);
+          }
+          delete shape;
+        }
       }
     }
 

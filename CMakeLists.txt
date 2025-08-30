@@ -16,6 +16,20 @@ if(NOT CMAKE_CXX_STANDARD)
   filters
 )
 
+ament_target_dependencies(self_filter_component
+  rclcpp
+  rclcpp_components
+  tf2
+  tf2_ros
+  geometry_msgs
+  sensor_msgs
+  urdf
+  resource_retriever
+  visualization_msgs
+  pcl_ros
+  filters
+)
+
 ament_target_dependencies(self_filter
   rclcpp
   tf2
@@ -38,6 +52,7 @@ find_package(yaml-cpp REQUIRED)
 
 # ROS 2 packages
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -118,6 +133,23 @@ target_link_libraries(${PROJECT_NAME}
   ${ASSIMP_LIBRARIES}
 )
 
+# Add the component library
+add_library(self_filter_component SHARED
+  src/self_filter.cpp
+)
+
+target_include_directories(self_filter_component PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(self_filter_component
+  ${PROJECT_NAME}
+  robot_geometric_shapes
+  ${ASSIMP_LIBRARIES}
+  ${YAML_CPP_LIBRARIES}
+)
+
 #
 # Create executables
 #
@@ -183,6 +215,22 @@ target_link_libraries(self_filter
   ${YAML_CPP_LIBRARIES}
 )
 
+ament_target_dependencies(self_filter
+  rclcpp
+  tf2
+  tf2_ros
+  geometry_msgs
+  sensor_msgs
+  urdf
+  resource_retriever
+  visualization_msgs
+  pcl_ros
+  filters
+)
+
+# Register the component
+rclcpp_components_register_nodes(self_filter_component "robot_self_filter::SelfFilterNode")
+
 #
 # Install
 #
@@ -207,6 +255,15 @@ install(
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Install the component library to lib (not lib/${PROJECT_NAME})
+install(
+  TARGETS
+    self_filter_component
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
 #
 # Export and finalize
 #
@@ -217,12 +274,14 @@ ament_export_include_directories(
 ament_export_libraries(
   robot_geometric_shapes
   ${PROJECT_NAME}
+  self_filter_component
 )
 
 # Exporting Bullet as a standard ament dependency doesn't typically do anything,
 # because Bullet is not a ROS package. It's fine to omit it.
 ament_export_dependencies(
   rclcpp
+  rclcpp_components
   tf2
   tf2_ros
   geometry_msgs

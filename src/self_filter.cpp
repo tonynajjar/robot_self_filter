@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp_components/register_node_macro.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
@@ -38,8 +39,8 @@ namespace robot_self_filter
   class SelfFilterNode : public rclcpp::Node
   {
   public:
-    SelfFilterNode()
-        : Node("self_filter")
+    explicit SelfFilterNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
+        : Node("self_filter", options)
     {
       try
       {
@@ -378,6 +379,9 @@ namespace robot_self_filter
   };
 
 } // namespace robot_self_filter
+
+// Register the component
+RCLCPP_COMPONENTS_REGISTER_NODE(robot_self_filter::SelfFilterNode)
 
 int main(int argc, char **argv)
 {

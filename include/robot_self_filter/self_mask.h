@@ -309,20 +309,21 @@ public:
     double lng = dir.length();
     if (lng < min_sensor_dist_) return INSIDE;
 
-    dir /= lng;
-    for (auto &sl : bodies_)
-    {
-      std::vector<tf2::Vector3> hits;
-      if (sl.body->intersectsRay(pt, dir, &hits, 1))
-      {
-        tf2::Vector3 diff = sensor_pos_ - hits[0];
-        if (dir.dot(diff) >= 0.0)
-        {
-          if (intersectionCallback) intersectionCallback(hits[0]);
-          return SHADOW;
-        }
-      }
-    }
+    // Shadow filtering disabled - skip ray intersection checks
+    // dir /= lng;
+    // for (auto &sl : bodies_)
+    // {
+    //   std::vector<tf2::Vector3> hits;
+    //   if (sl.body->intersectsRay(pt, dir, &hits, 1))
+    //   {
+    //     tf2::Vector3 diff = sensor_pos_ - hits[0];
+    //     if (dir.dot(diff) >= 0.0)
+    //     {
+    //       if (intersectionCallback) intersectionCallback(hits[0]);
+    //       return SHADOW;
+    //     }
+    //   }
+    // }
 
     for (auto &sl : bodies_)
     {
@@ -670,23 +671,25 @@ protected:
         }
         else
         {
-          dir /= lng;
-          // Ray intersect
-          for (auto &sl : bodies_)
-          {
-            std::vector<tf2::Vector3> hits;
-            if (sl.body->intersectsRay(pt, dir, &hits, 1))
-            {
-              tf2::Vector3 diff = sensor_pos_ - hits[0];
-              if (dir.dot(diff) >= 0.0)
-              {
-                if (callback) callback(hits[0]);
-                out = SHADOW;
-                break;
-              }
-            }
-          }
-          if (out == OUTSIDE && dist2 < radiusSq)
+          // Shadow filtering disabled - skip ray intersection checks
+          // dir /= lng;
+          // for (auto &sl : bodies_)
+          // {
+          //   std::vector<tf2::Vector3> hits;
+          //   if (sl.body->intersectsRay(pt, dir, &hits, 1))
+          //   {
+          //     tf2::Vector3 diff = sensor_pos_ - hits[0];
+          //     if (dir.dot(diff) >= 0.0)
+          //     {
+          //       if (callback) callback(hits[0]);
+          //       out = SHADOW;
+          //       break;
+          //     }
+          //   }
+          // }
+          
+          // Only check containment for scaled bodies
+          if (dist2 < radiusSq)
           {
             for (auto &sl : bodies_)
             {
